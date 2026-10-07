@@ -14,7 +14,8 @@ import { useDeviationScenarioStore } from '../stores/deviation-scenario'
 import { useSafeguardStore } from '../stores/safeguard'
 import { errorMessage } from '../api/client'
 import { coverageStateLabels } from '../types/enums/coverage-state'
-import type { CoverageSnapshot, EvaluationExplanation, PathEvidence, ScoringStep } from '../types/coverage-evaluation'
+import { safeguardTierLabels, type SafeguardTier } from '../types/enums/safeguard-tier'
+import type { CoverageSnapshot, EvaluationExplanation, LayerEligibility, PathEvidence, ScoringStep } from '../types/coverage-evaluation'
 
 const evaluations = useCoverageEvaluationStore()
 const scenarios = useDeviationScenarioStore()
@@ -31,12 +32,25 @@ const comparable = computed(() => evaluations.items.filter((x) => x.id !== selec
 const comparison = computed(() => evaluations.items.find((x) => x.id === compareId.value))
 
 function parse<T>(value: T | string, fallback: T): T { if (typeof value !== 'string') return value; try { return JSON.parse(value) as T } catch { return fallback } }
-const explanation = computed<EvaluationExplanation>(() => parse(selected.value?.explanation ?? '', { summary: '', paths: [], score_steps: [], deduplicated_safeguards: [], boundary_note: '', reference_time: '' }))
+const explanation = computed<EvaluationExplanation>(() => parse(selected.value?.explanation ?? '', { summary: '', paths: [], score_steps: [], deduplicated_safeguards: [], layers: [], boundary_note: '', reference_time: '', grace_days: 0 }))
 const paths = computed<PathEvidence[]>(() => explanation.value.paths?.length ? explanation.value.paths : parse(selected.value?.uncovered_paths ?? [], [] as PathEvidence[]))
 const steps = computed<ScoringStep[]>(() => {
   return explanation.value.score_steps ?? []
 })
+const layers = computed<LayerEligibility[]>(() => explanation.value.layers ?? [])
+const graceLayers = computed(() => layers.value.filter((layer) => layer.tier === 'grace'))
+const rejectedLayers = computed(() => layers.value.filter((layer) => layer.tier === 'rejected'))
+const stepRuleLabels: Record<string, string> = {
+  'independent-layer-combination': '独立保护层组合',
+  'grace-window-layer-combination': '宽限期保护层折半组合',
+  'eligibility-filter': '资格过滤',
+  'residual-risk': '残余风险',
+}
+const ruleLabel = (rule?: string) => (rule && stepRuleLabels[rule] ? stepRuleLabels[rule] : rule ?? '评分步骤')
+const tierLabel = (tier: SafeguardTier) => safeguardTierLabels[tier] ?? tier
+const formatDateTime = (value?: string) => (value ? new Date(value).toLocaleString('zh-CN') : '—')
 const inputSnapshot = computed<CoverageSnapshot>(() => parse(selected.value?.input_snapshot ?? '', {} as CoverageSnapshot))
+const snapshotGraceDays = computed(() => (inputSnapshot.value as { verification_grace_days?: number }).verification_grace_days ?? 0)
 const uncoveredCount = computed(() => paths.value.filter((path) => !(path.covered ?? path.protected)).length)
 const scoreClass = computed(() => (selected.value?.coverage_score ?? 0) >= 80 ? 'good' : (selected.value?.coverage_score ?? 0) >= 55 ? 'warning' : 'danger')
 const scenarioLabel = (id: number) => { const item = scenarios.items.find((x) => x.id === id); return item ? `#${item.id} ${item.guideword.toUpperCase()} ${item.parameter}` : `#${id}` }
@@ -77,15 +91,42 @@ onMounted(refresh)
           <div class="path-graph">
             <article v-if="!paths.length" class="protected-path"><CheckCircle2 :size="20" /><div><strong>快照中没有可计算路径</strong><span>请检查场景原因、后果与保护层输入。</span></div></article>
             <article v-for="(path, index) in paths" :key="index" class="path-row">
-              <div class="path-node cause"><small>原因</small><strong>{{ path.cause }}</strong></div><span class="path-edge"><i />{{ path.safeguard_names?.length || path.safeguard_ids?.length || 0 }} 层 · {{ Math.round((path.combined_protection ?? 0) * 100) }}%</span><div class="path-node consequence"><small>后果</small><strong>{{ path.consequence }}</strong></div><span class="gap-marker" :class="{ covered: path.covered ?? path.protected }"><CheckCircle2 v-if="path.covered ?? path.protected" :size="15" /><XCircle v-else :size="15" />{{ (path.covered ?? path.protected) ? '已覆盖' : '未覆盖' }}</span>
+              <div class="path-node cause"><small>原因</small><strong>{{ path.cause }}</strong></div><span class="path-edge"><i />{{ path.safeguard_names?.length || path.safeguard_ids?.length || 0 }} 层<span v-if="graceLayers.length">（含宽限 {{ graceLayers.length }}）</span> · {{ Math.round((path.combined_protection ?? 0) * 100) }}%</span><div class="path-node consequence"><small>后果</small><strong>{{ path.consequence }}</strong></div><span class="gap-marker" :class="{ covered: path.covered ?? path.protected }"><CheckCircle2 v-if="path.covered ?? path.protected" :size="15" /><XCircle v-else :size="15" />{{ (path.covered ?? path.protected) ? '已覆盖' : '未覆盖' }}</span>
             </article>
           </div>
           <div class="section-heading"><div><p class="eyebrow">SCORING TRACE</p><h2>评分解释</h2></div><span>相同快照可确定性重放</span></div>
-          <ol class="scoring-trace"><li v-for="(step, index) in steps" :key="index"><span>{{ step.step ?? index + 1 }}</span><div><strong>{{ step.rule || step.label }} · {{ step.contribution ?? step.value ?? '-' }}</strong><p>{{ step.explanation || step.detail }}<template v-if="step.running_score !== undefined"> · 累计 {{ step.running_score }}</template></p></div></li></ol>
+          <div v-if="explanation.grace_days" class="grace-banner">
+            <strong>验证宽限期 {{ explanation.grace_days }} 天（冻结于本评估）</strong>
+            <p>过期日之后 {{ explanation.grace_days }} 天内仍在使用的保护层继续参与覆盖计算，按登记效力的 50% 折半计入；超出宽限窗口的保护层排除不计；已判废措施不被宽限期救回。</p>
+            <small>宽限口径：{{ graceLayers.length }} 层宽限折半 · {{ rejectedLayers.length }} 层排除 · {{ layers.length - graceLayers.length - rejectedLayers.length }} 层全额</small>
+          </div>
+          <ol class="scoring-trace"><li v-for="(step, index) in steps" :key="index" :class="{ 'grace-step': step.rule === 'grace-window-layer-combination' }"><span>{{ step.step ?? index + 1 }}</span><div><strong>{{ ruleLabel(step.rule || step.label) }} · {{ step.contribution ?? step.value ?? '-' }}</strong><p>{{ step.explanation || step.detail }}<template v-if="step.running_score !== undefined"> · 累计 {{ step.running_score }}</template></p></div></li></ol>
+          <div v-if="layers.length" class="layer-tiers">
+            <div class="section-heading"><div><p class="eyebrow">LAYER ELIGIBILITY</p><h2>保护层计入口径</h2></div><span>按冻结参考时点 {{ new Date(explanation.reference_time).toLocaleString('zh-CN') }}</span></div>
+            <table>
+              <thead><tr><th>#</th><th>保护层 / 独立性键</th><th>口径</th><th class="num">登记效力</th><th class="num">计入效力</th><th>有效期 / 宽限截止</th></tr></thead>
+              <tbody>
+                <tr v-for="layer in layers" :key="layer.id" :class="`tier-${layer.tier}`">
+                  <td>{{ layer.id }}</td>
+                  <td><strong>{{ layer.name }}</strong><small>{{ layer.independence_key }} · {{ layer.lifecycle_state }}</small></td>
+                  <td><span class="tier-badge" :class="`tier-${layer.tier}`">{{ tierLabel(layer.tier) }}</span></td>
+                  <td class="num">{{ Math.round(layer.registered_effectiveness * 100) }}%</td>
+                  <td class="num">{{ layer.eligible ? `${Math.round((layer.counted_effectiveness ?? layer.registered_effectiveness) * 100)}%` : '—' }}</td>
+                  <td>
+                    <small v-if="!layer.eligible && layer.reject_reason">{{ layer.reject_reason }}</small>
+                    <template v-else>
+                      <small>到期 {{ formatDateTime(layer.verification_expires_at) }}</small>
+                      <small v-if="layer.tier === 'grace'"> · 宽限截止 {{ formatDateTime(layer.grace_ends_at) }}</small>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </section>
         <aside class="coverage-evidence">
           <div class="section-heading"><h2>冻结证据</h2><el-tooltip content="查看完整输入快照"><el-button circle text aria-label="查看输入快照" @click="drawer = true"><FileCheck2 :size="17" /></el-button></el-tooltip></div>
-          <dl class="evidence-pairs"><div><dt>场景</dt><dd>{{ scenarioLabel(selected.scenario_id) }}</dd></div><div><dt>保护措施</dt><dd>{{ scenarioSafeguards.length }} 项</dd></div><div><dt>独立性键</dt><dd>{{ new Set(scenarioSafeguards.map((x) => x.independence_key)).size }} 个</dd></div><div><dt>输入哈希</dt><dd><code>{{ selected.input_hash || inputSnapshot.input_hash || '见快照' }}</code></dd></div></dl>
+          <dl class="evidence-pairs"><div><dt>场景</dt><dd>{{ scenarioLabel(selected.scenario_id) }}</dd></div><div><dt>保护措施</dt><dd>{{ scenarioSafeguards.length }} 项</dd></div><div><dt>独立性键</dt><dd>{{ new Set(scenarioSafeguards.map((x) => x.independence_key)).size }} 个</dd></div><div><dt>验证宽限期</dt><dd>{{ snapshotGraceDays }} 天<small v-if="snapshotGraceDays"> · 宽限层半额计入</small></dd></div><div><dt>输入哈希</dt><dd><code>{{ selected.input_hash || inputSnapshot.input_hash || '见快照' }}</code></dd></div></dl>
           <div v-if="selected.deduplicated_safeguards?.length" class="dedupe-note"><strong>去重措施</strong><span v-for="item in selected.deduplicated_safeguards" :key="`${item.independence_key}-${item.kept_id}`">{{ item.independence_key }}：保留 #{{ item.kept_id }}，忽略 {{ item.ignored_ids.join(', ') }}</span></div>
           <div class="compare-tools"><GitCompare :size="16" /><el-select v-model="compareId" placeholder="选择版本对比" clearable><el-option v-for="item in comparable" :key="item.id" :label="`#${item.id} · ${item.coverage_score} 分`" :value="item.id" /></el-select></div>
           <div v-if="comparison" class="comparison-band"><div><span>覆盖分</span><strong>{{ comparison.coverage_score }} → {{ selected.coverage_score }}</strong></div><div><span>风险级别</span><strong>{{ comparison.risk_rank_after }} → {{ selected.risk_rank_after }}</strong></div></div>

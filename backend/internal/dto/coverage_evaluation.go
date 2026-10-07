@@ -39,13 +39,31 @@ type DeduplicatedSafeguardResponse struct {
 	IgnoredIDs      []uint `json:"ignored_ids"`
 	Reason          string `json:"reason"`
 }
+type LayerEligibilityResponse struct {
+	ID                      uint       `json:"id"`
+	Name                    string     `json:"name"`
+	IndependenceKey         string     `json:"independence_key"`
+	Tier                    string     `json:"tier"`
+	Eligible                bool       `json:"eligible"`
+	RegisteredEffectiveness float64   `json:"registered_effectiveness"`
+	CountedEffectiveness    float64    `json:"counted_effectiveness,omitempty"`
+	LifecycleState          string     `json:"lifecycle_state"`
+	VerificationExpiresAt   *time.Time `json:"verification_expires_at,omitempty"`
+	GraceEndsAt             *time.Time `json:"grace_ends_at,omitempty"`
+	RejectReason            string     `json:"reject_reason,omitempty"`
+}
 type EvaluationExplanation struct {
 	Summary       string                          `json:"summary"`
 	Paths         []CoveragePathResponse          `json:"paths"`
 	ScoreSteps    []ScoreStepResponse             `json:"score_steps"`
 	Deduplicated  []DeduplicatedSafeguardResponse `json:"deduplicated_safeguards"`
+	// Grace-era evidence is omitted entirely when grace days is zero, keeping
+	// zero-grace explanations byte-identical to the pre-grace algorithm.
+	Layers        []LayerEligibilityResponse      `json:"layers,omitempty"`
 	BoundaryNote  string                          `json:"boundary_note"`
 	ReferenceTime time.Time                       `json:"reference_time"`
+	GraceDays     int                             `json:"grace_days,omitempty"`
+	GracePolicy   string                          `json:"grace_policy,omitempty"`
 }
 type CoverageEvaluationResponse struct {
 	ID                     uint                            `json:"id"`

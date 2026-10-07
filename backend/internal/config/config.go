@@ -14,8 +14,8 @@ type Config struct {
 	JWTExpiry            time.Duration
 	LoginLimitPerMinute  int
 	RunLimitPerMinute    int
-	ShutdownTimeout      time.Duration
-	VerificationGraceDay int
+	ShutdownTimeout       time.Duration
+	VerificationGraceDays int
 }
 func Load() (Config, error) {
 	cfg := Config{
@@ -27,8 +27,8 @@ func Load() (Config, error) {
 		JWTExpiry:            durationEnv("JWT_EXPIRY", 8*time.Hour),
 		LoginLimitPerMinute:  intEnv("LOGIN_LIMIT_PER_MINUTE", 20),
 		RunLimitPerMinute:    intEnv("RUN_LIMIT_PER_MINUTE", 30),
-		ShutdownTimeout:      durationEnv("SHUTDOWN_TIMEOUT", 10*time.Second),
-		VerificationGraceDay: intEnv("VERIFICATION_GRACE_DAYS", 0),
+		ShutdownTimeout:       durationEnv("SHUTDOWN_TIMEOUT", 10*time.Second),
+		VerificationGraceDays: nonNegativeIntEnv("VERIFICATION_GRACE_DAYS", 0),
 	}
 	if cfg.Port == "" {
 		return Config{}, fmt.Errorf("PORT must not be empty")
@@ -41,6 +41,9 @@ func Load() (Config, error) {
 	}
 	if len(cfg.JWTSecret) < 16 {
 		return Config{}, fmt.Errorf("JWT_SECRET must contain at least 16 characters")
+	}
+	if cfg.VerificationGraceDays > 3650 {
+		return Config{}, fmt.Errorf("VERIFICATION_GRACE_DAYS must not exceed 3650")
 	}
 	return cfg, nil
 }
@@ -57,6 +60,17 @@ func intEnv(key string, fallback int) int {
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil || value <= 0 {
+		return fallback
+	}
+	return value
+}
+func nonNegativeIntEnv(key string, fallback int) int {
+	raw := env(key, "")
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
 		return fallback
 	}
 	return value

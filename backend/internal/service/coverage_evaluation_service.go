@@ -30,6 +30,7 @@ type coverageEvaluationService struct {
 	safeguards  repository.SafeguardRepository
 	audits      repository.AuditRepository
 	evaluator   *algorithm.Evaluator
+	graceDays   int
 	now         func() time.Time
 }
 func NewCoverageEvaluationService(
@@ -39,11 +40,13 @@ func NewCoverageEvaluationService(
 	safeguards repository.SafeguardRepository,
 	audits repository.AuditRepository,
 	evaluator *algorithm.Evaluator,
+	graceDays int,
 ) CoverageEvaluationService {
 	return &coverageEvaluationService{
 		evaluations: evaluations, scenarios: scenarios, nodes: nodes,
 		safeguards: safeguards, audits: audits, evaluator: evaluator,
-		now: func() time.Time { return time.Now().UTC() },
+		graceDays: graceDays,
+		now:       func() time.Time { return time.Now().UTC() },
 	}
 }
 func (s *coverageEvaluationService) Run(
@@ -82,7 +85,9 @@ func (s *coverageEvaluationService) Run(
 		return dto.CoverageEvaluationResponse{}, false, util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to load scenario safeguards", err)
 	}
 	referenceTime := s.now().Truncate(time.Second)
-	snapshot := algorithm.NewSnapshot(node, scenario, safeguards, referenceTime)
+	// Grace days are frozen into the snapshot so replay uses the policy that
+	// was active at evaluation time, not the current server configuration.
+	snapshot := algorithm.NewSnapshot(node, scenario, safeguards, referenceTime, s.graceDays)
 	snapshotJSON, err := util.CanonicalJSON(snapshot)
 	if err != nil {
 		return dto.CoverageEvaluationResponse{}, false, util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to freeze evaluation input", err)

@@ -47,8 +47,13 @@ docker compose up -d --build
 1. 从冻结的 `ProcessNode -> DeviationScenario -> cause/consequence -> Safeguard` 输入构造有向路径，并以稳定字段顺序生成快照与输入哈希。
 2. 将场景原因连接到后果；无有效保护层的连接记录为未覆盖路径。
 3. 同一路径内按 `independence_key` 去重。同键措施只采用确定性排序后的一个有效贡献，其余项进入去重说明。
-4. 只有生命周期有效且 `last_verified_at + test_interval_days` 未过期的保护层参与计算；每层按 `effectiveness` 贡献覆盖度。
+4. 只有生命周期有效且 `last_verified_at + test_interval_days` 未过期的保护层按全额 `effectiveness` 参与计算；过期保护层进入可配置的验证宽限期 `VERIFICATION_GRACE_DAYS`：
+   - 宽限天数在评估冻结时写入输入快照，重放只读取快照，不读取当前配置，因此历史评估可确定性复现。
+   - 宽限期内（过期日次日至过期日 + 宽限天数，含边界时刻）仍在使用的保护层继续参与覆盖计算，效力口径为登记 `effectiveness` 的 **50%（半额折减）**，评分步骤使用 `grace-window-layer-combination` 规则；选择半额是为了区分“刚验证”与“复核记录晚录”的措施，避免临期措施按全额虚增覆盖分。
+   - 宽限口径同时接住台账因过期日自动置为 `expired` 生命周期但现场仍在用的措施；已判废（`invalid`/`pending`）的措施不会被宽限期救回。
+   - 超出宽限窗口的保护层被排除，评分解释中每层标注 `valid`（全额）/ `grace`（半额）/ `rejected`（排除及原因）、登记效力、计入效力、过期日和宽限截止日；覆盖页“保护层计入口径”表逐层展示同一口径。
 5. 保存覆盖分、评估前后风险、未覆盖路径、评分步骤、算法版本和不可变输入快照。重放使用原始快照，因此相同输入产生相同结果。
+6. `VERIFICATION_GRACE_DAYS=0`（默认）时不输出任何宽限期字段，计算结果、快照和评分解释与引入宽限期之前完全一致。
 
 算法不会读取实时仪表、联锁组态、阀位、报警、人员位置或设备通信，也不验证真实独立保护层是否满足法规。输出必须由持证工艺安全人员结合现场证据复核。
 
@@ -182,7 +187,7 @@ queued -> running -> completed -> confirmed
 | `LOGIN_LIMIT_PER_MINUTE` | 登录端点本地限流 |
 | `RUN_LIMIT_PER_MINUTE` | 算法运行端点本地限流 |
 | `SHUTDOWN_TIMEOUT` | 优雅停机等待时间 |
-| `VERIFICATION_GRACE_DAYS` | 保护层验证有效期宽限天数 |
+| `VERIFICATION_GRACE_DAYS` | 保护层验证有效期宽限天数（默认 `0`，非负整数，上限 3650）。宽限期内的过期保护层仍参与覆盖计算，按登记效力的 50% 计入；评估冻结时写入快照，重放不受配置变更影响。为 `0` 时行为与旧版完全一致 |
 
 容器内后端始终监听 `8080`，PostgreSQL 监听 `5432`。前端只请求 `/api`；Nginx 将 `/api/v1` 原样代理到 `backend:8080`，并将 `/api/healthz` 映射到真实健康端点。
 
@@ -260,7 +265,7 @@ docker compose config --quiet
 - 返回 `403`：当前角色没有写权限；审计员只读，偏差复核还要求复核人与作者不同。
 - 状态迁移返回 `409`：刷新场景并按状态图选择下一状态；服务端用条件更新保证失败时数据库不变。
 - 评估运行返回 `400`：确认请求含非空 `Idempotency-Key`，且目标场景和保护层数据完整。
-- 覆盖分低于预期：检查过期保护层、失效生命周期和重复 `independence_key`，再打开评分解释查看去重原因。
+- 覆盖分低于预期：检查过期保护层、失效生命周期和重复 `independence_key`，再打开评分解释查看去重原因；过期日刚过但仍在宽限期内的措施按半额计入，可在覆盖页“保护层计入口径”表确认每层落在 `valid` / `grace` / `rejected` 哪种口径。
 - Compose 服务未 healthy：执行 `docker compose logs db backend frontend`，优先检查 DSN、JWT 密钥和数据库卷权限。
 - 页面刷新出现 404：确认通过 Nginx 或 Vite 访问；Nginx 已配置 SPA fallback，不能直接打开构建后的单个 HTML 文件。
 
