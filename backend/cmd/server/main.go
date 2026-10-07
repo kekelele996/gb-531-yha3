@@ -1,4 +1,5 @@
 package main
+
 import (
 	"context"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 )
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(logger); err != nil {
@@ -51,7 +53,7 @@ func run(logger *slog.Logger) error {
 	scenarioHandler := handler.NewDeviationScenarioHandler(service.NewDeviationScenarioService(scenarioRepo, nodeRepo, auditRepo))
 	safeguardHandler := handler.NewSafeguardHandler(service.NewSafeguardService(safeguardRepo, scenarioRepo, auditRepo))
 	evaluationHandler := handler.NewCoverageEvaluationHandler(service.NewCoverageEvaluationService(
-		evaluationRepo, scenarioRepo, nodeRepo, safeguardRepo, auditRepo, algorithm.NewEvaluator(),
+		evaluationRepo, scenarioRepo, nodeRepo, safeguardRepo, auditRepo, algorithm.NewEvaluator(), cfg.VerificationGraceDays,
 	))
 	auth := middleware.NewAuthenticator(userRepo, cfg)
 	loginLimiter := middleware.NewRateLimiter(cfg.LoginLimitPerMinute)
@@ -83,6 +85,7 @@ func run(logger *slog.Logger) error {
 			"deviation_guideword": constants.DeviationGuidewordValues(),
 			"coverage_state":      constants.CoverageStateValues(),
 			"scenario_state":      constants.ScenarioStateValues(),
+			"safeguard_tier":      algorithm.SafeguardTierValues(),
 			"roles":               constants.RoleValues(),
 		})
 	})

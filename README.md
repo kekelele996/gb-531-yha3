@@ -46,9 +46,10 @@ docker compose up -d --build
 
 1. 从冻结的 `ProcessNode -> DeviationScenario -> cause/consequence -> Safeguard` 输入构造有向路径，并以稳定字段顺序生成快照与输入哈希。
 2. 将场景原因连接到后果；无有效保护层的连接记录为未覆盖路径。
-3. 同一路径内按 `independence_key` 去重。同键措施只采用确定性排序后的一个有效贡献，其余项进入去重说明。
-4. 只有生命周期有效且 `last_verified_at + test_interval_days` 未过期的保护层参与计算；每层按 `effectiveness` 贡献覆盖度。
-5. 保存覆盖分、评估前后风险、未覆盖路径、评分步骤、算法版本和不可变输入快照。重放使用原始快照，因此相同输入产生相同结果。
+3. 同一路径内按 `independence_key` 去重。同键措施只采用确定性排序后的一个有效贡献（先按实际计入效力、再按 ID），其余项进入去重说明。
+4. 只有生命周期有效且 `last_verified_at + test_interval_days` 未过期的保护层按 `effectiveness` 足额计入；过期未超过配置宽限天数 `VERIFICATION_GRACE_DAYS` 的保护层仍参与计算，但按名义有效性的 50% 折半计入；超过宽限窗口或生命周期失效的保护层不参与。宽限天数随评估冻结进输入快照，并以快照中的参考时间判定窗口，因此重放不依赖当前日期。
+5. 每层保护层落入哪种口径（`eligible` 足额 / `grace` 宽限折半 / `duplicate` 重复不计 / `excluded` 排除）都写入评分解释与覆盖页的“保护层口径分层”，并逐层给出名义效力、计入效力、到期日与宽限截止日。宽限天数为 0 时宽限字段不出现在快照中，结果与历史算法完全一致。
+6. 保存覆盖分、评估前后风险、未覆盖路径、评分步骤、算法版本和不可变输入快照。重放使用原始快照，因此相同输入产生相同结果。
 
 算法不会读取实时仪表、联锁组态、阀位、报警、人员位置或设备通信，也不验证真实独立保护层是否满足法规。输出必须由持证工艺安全人员结合现场证据复核。
 
@@ -182,7 +183,7 @@ queued -> running -> completed -> confirmed
 | `LOGIN_LIMIT_PER_MINUTE` | 登录端点本地限流 |
 | `RUN_LIMIT_PER_MINUTE` | 算法运行端点本地限流 |
 | `SHUTDOWN_TIMEOUT` | 优雅停机等待时间 |
-| `VERIFICATION_GRACE_DAYS` | 保护层验证有效期宽限天数 |
+| `VERIFICATION_GRACE_DAYS` | 保护层验证过期后的宽限天数（默认 0）；宽限期内仍参与覆盖计算并按名义有效性 50% 折半计入，随评估冻结 |
 
 容器内后端始终监听 `8080`，PostgreSQL 监听 `5432`。前端只请求 `/api`；Nginx 将 `/api/v1` 原样代理到 `backend:8080`，并将 `/api/healthz` 映射到真实健康端点。
 
@@ -260,7 +261,7 @@ docker compose config --quiet
 - 返回 `403`：当前角色没有写权限；审计员只读，偏差复核还要求复核人与作者不同。
 - 状态迁移返回 `409`：刷新场景并按状态图选择下一状态；服务端用条件更新保证失败时数据库不变。
 - 评估运行返回 `400`：确认请求含非空 `Idempotency-Key`，且目标场景和保护层数据完整。
-- 覆盖分低于预期：检查过期保护层、失效生命周期和重复 `independence_key`，再打开评分解释查看去重原因。
+- 覆盖分低于预期：检查过期保护层是否已超出宽限窗口、失效生命周期和重复 `independence_key`，再打开评分解释与“保护层口径分层”查看每层的折半、去重或排除原因。
 - Compose 服务未 healthy：执行 `docker compose logs db backend frontend`，优先检查 DSN、JWT 密钥和数据库卷权限。
 - 页面刷新出现 404：确认通过 Nginx 或 Vite 访问；Nginx 已配置 SPA fallback，不能直接打开构建后的单个 HTML 文件。
 

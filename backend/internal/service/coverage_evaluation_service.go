@@ -1,4 +1,5 @@
 package service
+
 import (
 	"context"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 )
+
 type CoverageEvaluationService interface {
 	Run(context.Context, dto.RunCoverageEvaluationRequest, string, util.Actor) (dto.CoverageEvaluationResponse, bool, error)
 	Get(context.Context, uint) (dto.CoverageEvaluationResponse, error)
@@ -24,14 +26,16 @@ type CoverageEvaluationService interface {
 	Compare(context.Context, uint, uint) (dto.EvaluationComparisonResponse, error)
 }
 type coverageEvaluationService struct {
-	evaluations repository.CoverageEvaluationRepository
-	scenarios   repository.DeviationScenarioRepository
-	nodes       repository.ProcessNodeRepository
-	safeguards  repository.SafeguardRepository
-	audits      repository.AuditRepository
-	evaluator   *algorithm.Evaluator
-	now         func() time.Time
+	evaluations           repository.CoverageEvaluationRepository
+	scenarios             repository.DeviationScenarioRepository
+	nodes                 repository.ProcessNodeRepository
+	safeguards            repository.SafeguardRepository
+	audits                repository.AuditRepository
+	evaluator             *algorithm.Evaluator
+	verificationGraceDays int
+	now                   func() time.Time
 }
+
 func NewCoverageEvaluationService(
 	evaluations repository.CoverageEvaluationRepository,
 	scenarios repository.DeviationScenarioRepository,
@@ -39,11 +43,16 @@ func NewCoverageEvaluationService(
 	safeguards repository.SafeguardRepository,
 	audits repository.AuditRepository,
 	evaluator *algorithm.Evaluator,
+	verificationGraceDays int,
 ) CoverageEvaluationService {
+	if verificationGraceDays < 0 {
+		verificationGraceDays = 0
+	}
 	return &coverageEvaluationService{
 		evaluations: evaluations, scenarios: scenarios, nodes: nodes,
 		safeguards: safeguards, audits: audits, evaluator: evaluator,
-		now: func() time.Time { return time.Now().UTC() },
+		verificationGraceDays: verificationGraceDays,
+		now:                   func() time.Time { return time.Now().UTC() },
 	}
 }
 func (s *coverageEvaluationService) Run(
@@ -82,7 +91,7 @@ func (s *coverageEvaluationService) Run(
 		return dto.CoverageEvaluationResponse{}, false, util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to load scenario safeguards", err)
 	}
 	referenceTime := s.now().Truncate(time.Second)
-	snapshot := algorithm.NewSnapshot(node, scenario, safeguards, referenceTime)
+	snapshot := algorithm.NewSnapshot(node, scenario, safeguards, referenceTime, s.verificationGraceDays)
 	snapshotJSON, err := util.CanonicalJSON(snapshot)
 	if err != nil {
 		return dto.CoverageEvaluationResponse{}, false, util.WrapError(http.StatusInternalServerError, util.CodeInternal, "unable to freeze evaluation input", err)

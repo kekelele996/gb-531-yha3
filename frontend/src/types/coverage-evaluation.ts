@@ -1,4 +1,5 @@
 import type { CoverageState } from './enums/coverage-state'
+import type { SafeguardTier } from './enums/safeguard-tier'
 
 export interface PathEvidence {
   path_id?: string
@@ -13,11 +14,25 @@ export interface PathEvidence {
   protected?: boolean
   path_score?: number
   reason?: string
+  layers?: SafeguardLayer[]
+}
+
+export interface SafeguardLayer {
+  safeguard_id: number
+  name: string
+  independence_key: string
+  tier: SafeguardTier
+  nominal_effectiveness: number
+  applied_effectiveness: number
+  expires_at?: string
+  grace_until?: string
+  note: string
 }
 
 export interface ScoringStep {
   step?: number
   rule?: string
+  tier?: SafeguardTier
   input?: string
   contribution?: number
   running_score?: number
@@ -30,6 +45,7 @@ export interface ScoringStep {
 export interface DeduplicatedSafeguard {
   independence_key: string
   kept_id: number
+  kept_tier?: SafeguardTier
   ignored_ids: number[]
   reason: string
 }
@@ -39,6 +55,9 @@ export interface EvaluationExplanation {
   paths: PathEvidence[]
   score_steps: ScoringStep[]
   deduplicated_safeguards: DeduplicatedSafeguard[]
+  layers: SafeguardLayer[]
+  verification_grace_days: number
+  grace_policy: string
   boundary_note: string
   reference_time: string
 }
@@ -50,6 +69,8 @@ export interface CoverageSnapshot {
   consequences?: string[]
   safeguards?: unknown[]
   input_hash?: string
+  verification_grace_days?: number
+  reference_time?: string
 }
 
 export interface CoverageEvaluation {

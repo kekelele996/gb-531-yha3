@@ -24,11 +24,11 @@ func TestEvaluatorIsDeterministicAndDeduplicatesIndependenceKeys(t *testing.T) {
 		{ID: 4, IndependenceKey: "PSV-B", Effectiveness: 0.9, TestIntervalDays: 365, LastVerifiedAt: &expired, LifecycleState: "expired"},
 	}
 	evaluator := NewEvaluator()
-	first, err := evaluator.Evaluate(NewSnapshot(node, scenario, safeguards, reference))
+	first, err := evaluator.Evaluate(NewSnapshot(node, scenario, safeguards, reference, 0))
 	if err != nil {
 		t.Fatalf("first evaluation failed: %v", err)
 	}
-	second, err := evaluator.Evaluate(NewSnapshot(node, scenario, safeguards, reference))
+	second, err := evaluator.Evaluate(NewSnapshot(node, scenario, safeguards, reference, 0))
 	if err != nil {
 		t.Fatalf("second evaluation failed: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestEvaluatorDetectsUnprotectedPaths(t *testing.T) {
 		Cause: "blocked outlet", Consequence: "rupture", Likelihood: 3, Severity: 5,
 		ScenarioState: "draft", Version: 1,
 	}
-	result, err := NewEvaluator().Evaluate(NewSnapshot(node, scenario, nil, reference))
+	result, err := NewEvaluator().Evaluate(NewSnapshot(node, scenario, nil, reference, 0))
 	if err != nil {
 		t.Fatalf("evaluation failed: %v", err)
 	}

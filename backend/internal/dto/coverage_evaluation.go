@@ -1,9 +1,11 @@
 package dto
+
 import (
 	"encoding/json"
 	"hazop-safeguard-coverage/backend/internal/model"
 	"time"
 )
+
 type RunCoverageEvaluationRequest struct {
 	ScenarioID uint `json:"scenario_id" binding:"required"`
 }
@@ -15,19 +17,32 @@ type CoverageEvaluationQuery struct {
 	PageSize   int
 }
 type CoveragePathResponse struct {
-	PathID             string   `json:"path_id"`
-	NodeCode           string   `json:"node_code"`
-	Cause              string   `json:"cause"`
-	Consequence        string   `json:"consequence"`
-	SafeguardIDs       []uint   `json:"safeguard_ids"`
-	IndependenceKeys   []string `json:"independence_keys"`
-	CombinedProtection float64  `json:"combined_protection"`
-	Covered            bool     `json:"covered"`
-	Reason             string   `json:"reason"`
+	PathID             string                   `json:"path_id"`
+	NodeCode           string                   `json:"node_code"`
+	Cause              string                   `json:"cause"`
+	Consequence        string                   `json:"consequence"`
+	SafeguardIDs       []uint                   `json:"safeguard_ids"`
+	IndependenceKeys   []string                 `json:"independence_keys"`
+	CombinedProtection float64                  `json:"combined_protection"`
+	Covered            bool                     `json:"covered"`
+	Reason             string                   `json:"reason"`
+	Layers             []SafeguardLayerResponse `json:"layers"`
+}
+type SafeguardLayerResponse struct {
+	SafeguardID          uint    `json:"safeguard_id"`
+	Name                 string  `json:"name"`
+	IndependenceKey      string  `json:"independence_key"`
+	Tier                 string  `json:"tier"`
+	NominalEffectiveness float64 `json:"nominal_effectiveness"`
+	AppliedEffectiveness float64 `json:"applied_effectiveness"`
+	ExpiresAt            string  `json:"expires_at,omitempty"`
+	GraceUntil           string  `json:"grace_until,omitempty"`
+	Note                 string  `json:"note"`
 }
 type ScoreStepResponse struct {
 	Step         int     `json:"step"`
 	Rule         string  `json:"rule"`
+	Tier         string  `json:"tier,omitempty"`
 	Input        string  `json:"input"`
 	Contribution float64 `json:"contribution"`
 	RunningScore float64 `json:"running_score"`
@@ -36,6 +51,7 @@ type ScoreStepResponse struct {
 type DeduplicatedSafeguardResponse struct {
 	IndependenceKey string `json:"independence_key"`
 	KeptID          uint   `json:"kept_id"`
+	KeptTier        string `json:"kept_tier,omitempty"`
 	IgnoredIDs      []uint `json:"ignored_ids"`
 	Reason          string `json:"reason"`
 }
@@ -44,6 +60,9 @@ type EvaluationExplanation struct {
 	Paths         []CoveragePathResponse          `json:"paths"`
 	ScoreSteps    []ScoreStepResponse             `json:"score_steps"`
 	Deduplicated  []DeduplicatedSafeguardResponse `json:"deduplicated_safeguards"`
+	Layers        []SafeguardLayerResponse        `json:"layers"`
+	GraceDays     int                             `json:"verification_grace_days"`
+	GracePolicy   string                          `json:"grace_policy"`
 	BoundaryNote  string                          `json:"boundary_note"`
 	ReferenceTime time.Time                       `json:"reference_time"`
 }
@@ -85,6 +104,7 @@ type EvaluationComparisonResponse struct {
 	RiskRankChanged    bool    `json:"risk_rank_changed"`
 	InputChanged       bool    `json:"input_changed"`
 }
+
 func NewCoverageEvaluationResponse(e model.CoverageEvaluation) CoverageEvaluationResponse {
 	response := CoverageEvaluationResponse{
 		ID: e.ID, ScenarioID: e.ScenarioID, AlgorithmVersion: e.AlgorithmVersion,

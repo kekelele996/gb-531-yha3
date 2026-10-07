@@ -1,34 +1,41 @@
 package config
+
 import (
 	"fmt"
 	"os"
 	"strconv"
 	"time"
 )
+
 type Config struct {
-	Port                 string
-	DBDriver             string
-	DBDSN                string
-	JWTSecret            string
-	JWTIssuer            string
-	JWTExpiry            time.Duration
-	LoginLimitPerMinute  int
-	RunLimitPerMinute    int
-	ShutdownTimeout      time.Duration
-	VerificationGraceDay int
+	Port                  string
+	DBDriver              string
+	DBDSN                 string
+	JWTSecret             string
+	JWTIssuer             string
+	JWTExpiry             time.Duration
+	LoginLimitPerMinute   int
+	RunLimitPerMinute     int
+	ShutdownTimeout       time.Duration
+	VerificationGraceDays int
 }
+
 func Load() (Config, error) {
+	graceDays, err := nonnegativeIntEnv("VERIFICATION_GRACE_DAYS", 0)
+	if err != nil {
+		return Config{}, err
+	}
 	cfg := Config{
-		Port:                 env("PORT", "8080"),
-		DBDriver:             env("DB_DRIVER", "postgres"),
-		DBDSN:                env("DB_DSN", "host=localhost user=hazop password=hazop dbname=hazop port=5432 sslmode=disable"),
-		JWTSecret:            env("JWT_SECRET", "development-only-change-me"),
-		JWTIssuer:            env("JWT_ISSUER", "hazop-safeguard-coverage"),
-		JWTExpiry:            durationEnv("JWT_EXPIRY", 8*time.Hour),
-		LoginLimitPerMinute:  intEnv("LOGIN_LIMIT_PER_MINUTE", 20),
-		RunLimitPerMinute:    intEnv("RUN_LIMIT_PER_MINUTE", 30),
-		ShutdownTimeout:      durationEnv("SHUTDOWN_TIMEOUT", 10*time.Second),
-		VerificationGraceDay: intEnv("VERIFICATION_GRACE_DAYS", 0),
+		Port:                  env("PORT", "8080"),
+		DBDriver:              env("DB_DRIVER", "postgres"),
+		DBDSN:                 env("DB_DSN", "host=localhost user=hazop password=hazop dbname=hazop port=5432 sslmode=disable"),
+		JWTSecret:             env("JWT_SECRET", "development-only-change-me"),
+		JWTIssuer:             env("JWT_ISSUER", "hazop-safeguard-coverage"),
+		JWTExpiry:             durationEnv("JWT_EXPIRY", 8*time.Hour),
+		LoginLimitPerMinute:   intEnv("LOGIN_LIMIT_PER_MINUTE", 20),
+		RunLimitPerMinute:     intEnv("RUN_LIMIT_PER_MINUTE", 30),
+		ShutdownTimeout:       durationEnv("SHUTDOWN_TIMEOUT", 10*time.Second),
+		VerificationGraceDays: graceDays,
 	}
 	if cfg.Port == "" {
 		return Config{}, fmt.Errorf("PORT must not be empty")
@@ -60,6 +67,17 @@ func intEnv(key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+func nonnegativeIntEnv(key string, fallback int) (int, error) {
+	raw := env(key, "")
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer, got %q", key, raw)
+	}
+	return value, nil
 }
 func durationEnv(key string, fallback time.Duration) time.Duration {
 	raw := env(key, "")
